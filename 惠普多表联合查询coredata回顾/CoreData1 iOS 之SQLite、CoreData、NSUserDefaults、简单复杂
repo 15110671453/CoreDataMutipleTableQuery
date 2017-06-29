@@ -1,0 +1,484 @@
+CoreData1 iOS 之SQLite、CoreData、NSUserDefaults、简单复杂对象存入本地等数据库代码的编写
+数据库的重要性就不用我多说了吧！相信同行的你一定深有体会， 那么在这里我将把自己对数据库的总结分享在这里， 仅供参考， 如有不妥， 希望多提意见！
+
+首先：让我们看看存储数据的沙盘存在哪里：
+NSLog(@"%@", NSHomeDirectory());
+复制打印出来的路径， 到桌面顶部的前往---前往到文件夹，就可以找到沙盒的存储地址， 里面包含如下内容：
+1. Documents: 文档文件夹, 保存用户的数据, 最好不要保存体积很大的文件
+2. Liberay--Caches: 缓存文件夹, 应用程序的缓存内容(图片/数据/视频/音频...)
+3. Liberay--Preferences: 偏好设置文件夹, 给开发者保存数据使用
+4. tmp: 临时文件夹
+
+一、 简单复杂对象存入本地
+1.字符串写入本地
+    NSString *str = @"Husband And Wife";
+    // 创建一个文件路径
+
+    // 获取Documents文件夹的路径
+    // 参数1: 要找哪个文件夹路径
+    // 参数2: 寻址的范围
+    // 参数3: 是不是绝对路径
+    NSString *docPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    
+    // 拼接一个文件名, 生成一个文件路径
+    NSString *strPath = [docPath stringByAppendingString:@"/aaaa.txt"];
+
+    // 写入本地
+    // 参数1: 文件路径
+    // 参数2: 对写入过程进行线程保护
+    // 参数3: 编码形式
+    [str writeToFile:strPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    NSLog(@"文件路径: %@", strPath);
+    
+    
+2. 字典/数组保存本地的文件扩展名是plist/xml
+    NSString *arrPath = [docPath stringByAppendingPathComponent:@"arr.plist"];
+    
+    // 数组对象写入本地
+    NSArray *arr = @[@"小明", @"小丽"];
+    [arr writeToFile:arrPath atomically:YES];
+    
+    // 字典写入本地(下载就是把NSData写入本地)
+    NSDictionary *dic = @{@"key": @"value", @"key1": @"value1"};
+    NSString *dicPath = [docPath stringByAppendingPathComponent:@"dic.xml"];
+    [dic writeToFile:dicPath atomically:YES];
+    
+3. 根据路径读取数据
+    
+    NSArray *readArr = [NSArray arrayWithContentsOfFile:arrPath];
+    NSLog(@"%@", readArr);
+    
+    
+4. 复杂对象写入本地
+    // 自己创建的类产生的对象, 叫复杂对象（这里的Boss是我自己之前创建的一个类， 包含name和gender两个属性， 这步略过）
+    Boss *boss = [[Boss alloc] init];
+    boss.name = @"张家伟";
+    boss.gender = @"unknown";
+    boss.number = 2;
+    boss.phone = 120;
+    
+    // 归档类: 负责把一个对象, 写入本地/生成NSData（因为是自己生成的一个类， 不属于系统的， 所以boss·的后缀名可以随便写）
+    NSString *bossPath = [docPath stringByAppendingPathComponent:@"boss.suibian"];
+    
+    // 归档类: 负责把一个对象, 写入本地/生成NSData
+    [NSKeyedArchiver archiveRootObject:boss toFile:bossPath];
+    
+    // 反归档类: 负责读取本地的数据, 产生一个新的对象
+    Boss *newBoss = [NSKeyedUnarchiver unarchiveObjectWithFile:bossPath];
+    NSLog(@"%@", newBoss.name);
+
+
+二、 NSUserDefaults
+
+          这是苹果提供的一个数据库， 但是它只能存取一些简单的对象， 比如把用户登陆时候的账号密码直接存入本地， 那么下次用户再登陆的时候就可以直接从本地读取后， 直接登陆， 而不需要再次输入账号密码。
+
+          // 系统提供的一个单利方法
+    NSUserDefaults *userD = [NSUserDefaults standardUserDefaults];
+    // 把一个object保存到本地
+    [userD setObject:@"xiaochao" forKey:@"name"];
+    // 把修改同步到本地文件
+    [userD synchronize];
+    // 从本地取出object
+    NSLog(@"%@", [userD objectForKey:@"name"]);
+    // 从本地移除
+    [userD removeObjectForKey:@"name"];
+    
+    // 判断用户是不是第一次使用程序
+    if ([userD objectForKey:@"first"] == nil) {
+        NSLog(@"第一次使用");
+        [userD setObject:@"suibian" forKey:@"first"];
+    } else {
+        NSLog(@"不是第一次");
+    }
+
+    当然还有好多方法， 就不一一提到：如： [userD setBool:<#(BOOL)#> forKey:<#(NSString *)#>];
+
+
+三、 SQLite
+
+    首先，我们要知道，SQLite是以C语言为基础编写的，所以市面上很多公司的老板更喜欢让员工去使用SQLite去编写数据库，因为他们不懂iOS出的CoreData编写的数据库。并且c语言是底层语言，这就使得SQLite变得尤为重要。强烈建议你去下载:MesaSQLite, 它是打开数据库的工具，也可以让你更好的理解SQLite输入的语句为什么这么写。
+   // 代码编写如下：我们需要先建立这样一个类，把相应的代码封装进去，方便我们日后长期使用
+    // Movie是之间建好的一个类，我们存储对象一般都是对某个类进行存储， 很容易理解下面分别封装了打开数据库，关闭你数据库，增、删、改、查四个主要功能，同时还包括一个往数据库中添加的时候，数据后中是否已经包了这个对象（如收藏功能，加入收藏过，就没必要再添加一次收藏）
+    // 在.h中的代码如下
+    #import <Foundation/Foundation.h>
+    #import <sqlite3.h>
+    @class Movie; 
+    @interface DBCenter : NSObject
+    {
+        sqlite3 *dbPoint;
+    }
+    + (DBCenter *)shareInstance;
+    - (BOOL)openDB;
+    - (BOOL)closeDB;
+    - (BOOL)createMovieTabel;
+    - (BOOL)insertMovie:(Movie *)movie;
+    - (NSMutableArray *)selectAllMovies;
+    - (BOOL)isContainMovie:(Movie *)movie;
+    @end
+
+    // 在.m中的代码如下
+    #import "DBCenter.h"
+    #import "Movie.h"
+    @implementation DBCenter
+
+        // 单例方法
+    + (DBCenter *)shareInstance
+    {
+        static DBCenter *center = nil; // static静态，程序运行期间center值不变
+        static dispatch_once_t onceToken; // 代码块， 程序只运行一次
+        dispatch_once(&onceToken, ^{
+            center = [[DBCenter alloc] init];
+            [center openDB]; // 因为我们第一次使用的时候，需要先打开数据库，创建表，所以直接写在这里更加方便
+            [center createMovieTabel]; // 创建的表
+        });
+        return center;
+    }
+
+        // 打开数据库
+    - (BOOL)openDB
+    {
+     NSString *docPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) lastObject];
+    
+        NSString *dbPath = [docPath stringByAppendingPathComponent:@"DoubanMovie.db"];
+        NSLog(@"%@", dbPath);
+        int result = sqlite3_open([dbPath UTF8String], &dbPoint);
+        NSLog(@"打开数据库的结果: %d", result);
+        return [self judgeResult:result type:@"打开数据库"];
+    }
+
+    // 关闭数据库
+    - (BOOL)closeDB
+    {
+        int result = sqlite3_close(dbPoint);
+        return [self judgeResult:result type:@"关闭数据库"];
+    }
+
+   // 用于判断我操作成功与否， 并打印出来
+    - (BOOL)judgeResult:(int)result type:(NSString *)type
+    {
+        if (result == SQLITE_OK) {
+            NSLog(@"%@成功", type);
+            return YES;
+        } else {
+        NSLog(@"%@失败, 失败编号: %d", type, result);
+        return NO;
+        }
+    }
+
+    // 创建表
+    - (BOOL)createMovieTabel
+    {
+        NSString *sqlStr = @"create table movie (movieId interger primary key, title text)";
+        return [self helperWithSqlStr:sqlStr type:@"创建表"]; // 因为每次改变的只是SQLite语句，所以只需向方法中传递一个语句即可
+    }
+    
+    // 插入对象
+    - (BOOL)insertMovie:(Movie *)movie
+    {
+    NSString *sqlStr = [NSString stringWithFormat:@"insert into movie values(%@, '%@')", movie.movieId, movie.title];
+    return [self helperWithSqlStr:sqlStr type:@"添加一条数据"]; // 同上
+    }
+
+    // 查找
+    - (NSMutableArray *)selectAllMovies
+    {
+        // 查询所有的学生数据
+    NSString *sqlStr = @"select * from movie";
+    
+    sqlite3_stmt *stmt = nil;
+    int result = sqlite3_prepare(dbPoint, [sqlStr UTF8String], -1, &stmt, NULL);
+        // 建立一个空数组, 用来装学生数据
+    NSMutableArray *movieArr = [NSMutableArray array];
+    if (result == SQLITE_OK) {
+        // 遍历结果中的所有数据
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            // 每一条数据都对应一个student对象
+            Movie *movie = [[Movie alloc] init];
+            movie.movieId = [NSString stringWithFormat:@"%d", sqlite3_column_int(stmt, 0)];
+            movie.title = [NSString stringWithUTF8String:(const char *)sqlite3_column_text(stmt, 1)];
+            [movieArr addObject:movie];
+            [movie release];
+        }
+    }
+    // 回收状态指针的内存, 将sql的改变结果保存到数据库.
+    sqlite3_finalize(stmt);
+    // 将数组返回
+    return movieArr;
+}
+
+    // 插入对象
+    - (BOOL)isContainMovie:(Movie *)movie
+    {
+        NSString *sqlStr = [NSString stringWithFormat:@"select * from movie where movieId = %@", movie.movieId];
+        sqlite3_stmt *stmt = nil;
+        int result = sqlite3_prepare(dbPoint, [sqlStr UTF8String], -1, &stmt, NULL);
+
+    // 建立一个空数组, 用来装学生数据
+    if (result == SQLITE_OK) {
+            // 遍历结果中的所有数据
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+            sqlite3_finalize(stmt);
+            return YES;
+            }
+        }
+
+        sqlite3_finalize(stmt);
+        return NO;
+    }
+
+    // 封装的方法，方便给数据库传递命令
+    - (BOOL)helperWithSqlStr:(NSString *)sqlStr type:(NSString *)type
+    {
+        int result = sqlite3_exec(dbPoint, [sqlStr UTF8String], NULL, NULL, NULL);
+        return [self judgeResult:result type:type];
+    }
+    @end
+
+
+四、 CoreData
+
+    我很难用代码和注释给你讲明白， 所以我把思路和代码以及其实现的原理图提供给你， 具体的含义还需要你去研究。
+
+    这是ios出的高级数据库，可以这么说，相对于SQLite来说，CoreData无论从安全角度，或者可持续性方面，都领先于SQLite。只不过，好多非iOS的开发人员看不懂它而已。最简单的一个例子，数据库升级，如果使用SQLite来做的话，就会变得非常繁琐。而CoreData却把它变得如此轻松。
+    首先，它的实现由很多种，你可以在创建的时候直接勾选CoreData，也可以把CoreData的代码封装成一个类，那么下次你想用的时候，即使你没有勾选CoreData也可以很容易的用CoreData去创建数据库。下面，让我们去封装一个CoreData方法的类吧！
+
+    1. 建立一个模型DataModle 取名：“High_coreDataClass05”
+
+    2. 封装一个类（Student是我之间建的一个类）
+    // .h里面
+    #import <Foundation/Foundation.h>
+    #import <CoreData/CoreData.h>
+    @interface CoreDataManager : NSObject
+    // 数据管理器
+    @property (readonly, strong, nonatomic) NSManagedObjectContext *managedObjectContext;
+    // 数据模型器
+    @property (readonly, strong, nonatomic) NSManagedObjectModel *managedObjectModel;
+    // 连接器
+    @property (readonly, strong, nonatomic) NSPersistentStoreCoordinator *persistentStoreCoordinator;
+    // 单例方法
+    + (CoreDataManager *)defaultManager;
+    // 保存
+    - (void)saveContext;
+    // 获取本地存储路径
+    - (NSURL *)applicationDocumentsDirectory;
+    @end
+
+    // .m里面
+    @implementation CoreDataManager
+    // 单例方法
+    + (CoreDataManager *)defaultManager
+    {
+        static CoreDataManager *manager = nil;
+        // 只运行一次的线程
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            manager = [[CoreDataManager alloc] init];
+        });
+        return manager;
+    }
+
+    #pragma mark - Core Data stack
+    @synthesize managedObjectContext = _managedObjectContext;
+    @synthesize managedObjectModel = _managedObjectModel;
+    @synthesize persistentStoreCoordinator = _persistentStoreCoordinator;
+
+    - (NSURL *)applicationDocumentsDirectory {
+    // The directory the application uses to store the Core Data store file. This code uses a directory named "com.lanou3g.High_coreDataClass05" in the application's documents directory.
+        return [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+    }
+
+    // 数据模型器
+    - (NSManagedObjectModel *)managedObjectModel {
+    // The managed object model for the application. It is a fatal error for the application not to be able to find and load its model.
+        if (_managedObjectModel != nil) {
+            return _managedObjectModel;
+        }
+        NSURL *modelURL = [[NSBundle mainBundle] URLForResource:@"High_coreDataClass05" withExtension:@"momd"];
+        _managedObjectModel = [[NSManagedObjectModel alloc] initWithContentsOfURL:modelURL];
+        return _managedObjectModel;
+    }
+    
+    // 数据连接器
+    - (NSPersistentStoreCoordinator *)persistentStoreCoordinator {
+    // The persistent store coordinator for the application. This implementation creates and return a coordinator, having added the store for the application to it.
+        if (_persistentStoreCoordinator != nil) {
+            return _persistentStoreCoordinator;
+        }
+    
+    // Create the coordinator and store
+    
+        _persistentStoreCoordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
+        NSURL *storeURL = [[self applicationDocumentsDirectory] URLByAppendingPathComponent:@"High_coreDataClass05.sqlite"];
+        NSError *error = nil;
+        NSString *failureReason = @"There was an error creating or loading the application's saved data.";
+    
+        // 允许自动桥接存储设置
+        NSDictionary *option = [NSDictionary dictionaryWithObject:@(YES) forKey:NSMigratePersistentStoresAutomaticallyOption];
+    
+         if (![_persistentStoreCoordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:storeURL options:option error:&error]) {
+        // Report any error we got.
+            NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+            dict[NSLocalizedDescriptionKey] = @"Failed to initialize the application's saved data";
+            dict[NSLocalizedFailureReasonErrorKey] = failureReason;
+            dict[NSUnderlyingErrorKey] = error;
+            error = [NSError errorWithDomain:@"YOUR_ERROR_DOMAIN" code:9999 userInfo:dict];
+        // Replace this with code to handle the error appropriately.
+        // abort() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
+            NSLog(@"Unresolved error %@, %@", error, [error userInfo]);
+            abort();
+        }
+         return _persistentStoreCoordinator;
+    }
+
+    // 数据管理器
+    - (NSManagedObjectContext *)managedObjectContext {
+    // Returns the managed object context for the application (which is already bound to the persistent store coordinator for the application.)
+        if (_managedObjectContext != nil) {
+            return _managedObjectContext;
+        }
+    
+        NSPersistentStoreCoordinator *coordinator = [self persistentStoreCoordinator];
+        if (!coordinator) {
+            return nil;
+        }
+        _managedObjectContext = [[NSManagedObjectContext alloc] init];
+        [_managedObjectContext setPersistentStoreCoordinator:coordinator];
+        return _managedObjectContext;
+    }
+
+    #pragma mark - Core Data Saving support
+    - (void)saveContext {
+        NSManagedObjectContext *managedObjectContext = self.managedObjectContext;
+        if (managedObjectContext != nil) {
+            NSError *error = nil;
+            if ([managedObjectContext hasChanges] && ![managedObjectContext save:&error]) {
+            // Replace this implementation with code to handle the error appropriately.
+            // abort() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
+                NSLog(@"Unresolved error %@, %@", error, [error userInfo]);
+                abort();
+            }
+        }
+    }
+    @end
+
+
+    3. 视图控制器里面调用 
+
+    #import "ViewController.h"
+    #import "CoreDataManager.h"
+    #import "Student.h"
+    @interface ViewController ()
+
+    @property (nonatomic, strong) CoreDataManager *manager;
+    @property (nonatomic, strong) NSArray *resultArr;
+
+    @end
+
+    @implementation ViewController
+
+    - (void)viewDidLoad {
+        [super viewDidLoad];
+        // Do any additional setup after loading the view, typically from a nib.
+    
+        // 通过单例方法获取本地存储管理对象
+        self.manager = [CoreDataManager defaultManager];
+    
+        // 打印本地存储的路径
+        NSLog(@"url: %@", [self.manager applicationDocumentsDirectory]);
+    }
+    // 增加
+    - (IBAction)add:(id)sender {
+
+        // 写法1
+        // 创建实体描述对象
+        // 参数1: 实体名称 (注意首字母大写)
+        // 参数2: 在哪个数据管理器下读取
+        NSEntityDescription *entity = [NSEntityDescription entityForName:@"Student" inManagedObjectContext:self.manager.managedObjectContext];
+    
+        // 创建数据对象
+        // 参数1: 实体描述对象 (通过该对象对数据对象进行初始化)
+        // 参数2: 插入到哪个数据管理器 (交给谁去管理)
+        Student *stu = [[Student alloc] initWithEntity:entity insertIntoManagedObjectContext:self.manager.managedObjectContext];
+    
+    
+        // 写法2
+        Student *stu = [NSEntityDescription insertNewObjectForEntityForName:@"Student" inManagedObjectContext:self.manager.managedObjectContext];
+    
+        stu.name = @"xiaochao";
+        // 快速创建一个NSNumber类型的对象, 用@
+        stu.age = @24;
+    
+        stu.sex = @"n";
+        // 保存操作
+        [self.manager saveContext];
+    }
+
+    - (IBAction)select:(id)sender {
+    
+        // 写法1
+    
+    // 创建一个获取请求
+    // 参数: 实体名称
+    NSFetchRequest *request = [[NSFetchRequest alloc] initWithEntityName:@"Student"];
+    
+    // 谓词 (只有对和错两种结果)
+    //request.predicate = [NSPredicate predicateWithFormat:@"name = 'xiaochao'"];
+    // 谓词 (只有对和错两种结果)   多条件查找
+    //request.predicate = [NSPredicate predicateWithFormat:@"name = 'xiaochao' OR age = 100"];
+    //request.predicate = [NSPredicate predicateWithFormat:@"name = 'xiaochao' OR age = 100"];
+    //request.predicate = [NSPredicate predicateWithFormat:@"name CONTAINS 'xiao'"];
+
+    // 向数据管理器发送获取数据的请求
+    //NSArray *resultArr = [self.manager.managedObjectContext executeFetchRequest:request error:nil];   
+    //for (Student *stu in resultArr) {
+       //NSLog(@"name: %@, age: %@", stu.name, stu.age);
+    //}
+    
+    // 写法2 (直接打fe会出现一个代码块, 然后选fetch - Core - Data)
+    NSFetchRequest *fetchRequest = [[NSFetchRequest alloc] init];
+    NSEntityDescription *entity = [NSEntityDescription entityForName:@"Student" inManagedObjectContext:self.manager.managedObjectContext];
+    [fetchRequest setEntity:entity];
+    // Specify criteria for filtering which objects to fetch
+    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"name CONTAINS 'xiao'"];
+    [fetchRequest setPredicate:predicate];
+    // Specify how the fetched objects should be sorted
+    // 参数1: 按照某个键去排序
+    // 参数2: 是否升序
+    NSSortDescriptor *sortDescriptor = [[NSSortDescriptor alloc] initWithKey:@"age"
+                                                                   ascending:YES];
+    [fetchRequest setSortDescriptors:[NSArray arrayWithObjects:sortDescriptor, nil]];
+    
+    NSError *error = nil;
+    self.resultArr = [self.manager.managedObjectContext executeFetchRequest:fetchRequest error:&error];
+    
+    if (self.resultArr == nil) {
+        NSLog(@"error: %@", error);
+    }
+    
+    // 遍历数组
+    for (Student *stu in self.resultArr) {
+        NSLog(@"name: %@, age: %@", stu.name, stu.age);
+    }
+
+}
+
+    - (IBAction)change:(id)sender {
+    
+        for (Student *stu in self.resultArr) {
+            stu.name = @"xuying";
+            stu.age = @23;
+            stu.sex = @"n";
+        }
+        [self.manager saveContext];
+    
+    }
+
+    - (IBAction)delete:(id)sender {
+    
+        for (Student *stu in self.resultArr) {
+            [self.manager.managedObjectContext deleteObject:stu];
+        }
+        [self.manager saveContext];
+    }
+
+    这就是整个的流程，希望对你有所帮助！
